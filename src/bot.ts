@@ -186,30 +186,16 @@ bot.command("program", async (ctx) => {
 bot.command("start", (ctx) => {
   const welcomeMessage = `🚀 *Welcome to Alayeseke!* 🚀
 
-📊 Your personal Solana portfolio assistant that helps you track:
+📊 *Your personal Solana blockchain assistant*
 
-*Portfolio Commands:*
-• */pnl* - Check wallet profit and loss
-• */report* - Get detailed wallet report
-• */nfts* - View NFT portfolio
-• */token_balance* - View current token holdings
+Alayeseke helps you:
 
-*Token Commands:*
-• */top_holders* - View top holders of a token
-• */price* - Check token price with OHLC data
-• */transfers* - View recent token transfers
-• */trades* - View recent token trades
+• Track wallet portfolios and PnL
+• Monitor NFT collections
+• View token data and top holders
+• Analyze Solana programs and markets
 
-*Program & Market Commands:*
-• */program* - Get program details
-• */market* - Check market OHLC data
-• */pair* - Check trading pair data
-
-*Other Commands:*
-• */holder_portfolio* - Examine a specific holder's portfolio
-• */help* - Show this help message
-
-Simply use any command with your wallet address to get started!
+To see all available commands, type */help*
 
 Powered by Vybe API 💎`;
   
