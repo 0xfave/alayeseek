@@ -222,12 +222,10 @@ bot.command("help", (ctx) => {
 
 *Program & Market Commands:*
 • */program* - Get program details
-• */program_activity* - Check program activity
 • */market* - Check market OHLC data
 • */pair* - Check trading pair data
 
 *Other Commands:*
-• */holder_portfolio* - Examine a specific holder's portfolio
 • */help* - Show this help message
 
 Simply use any command with your wallet address to get started!
@@ -348,6 +346,270 @@ bot.command("market", async (ctx) => {
   } catch (error) {
     console.error('Error in market command:', error);
     return ctx.reply(`Error fetching market data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+});
+
+bot.command("pair", async (ctx) => {
+  // Parse the command format: /pair TOKEN1/TOKEN2 [resolution]
+  const queryText = ctx.message?.text.substring('/pair'.length).trim() || '';
+  
+  if (!queryText) {
+    return ctx.reply('Please provide a trading pair in the format TOKEN1/TOKEN2 or ADDRESS1/ADDRESS2. Examples:\n/pair SOL/USDC\n/pair SOL/USDC 1d\n/pair So11111111111111111111111111111111111111112/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Parse the input to extract pair and resolution
+    const parts: string[] = queryText ? queryText.split(' ') : [];
+    const pairQuery = parts[0];
+    const resolution = parts[1] || '1d'; // Default to 1d if not specified
+    
+    // Notify user that we're fetching data
+    await ctx.reply(`Fetching data for trading pair: \`${pairQuery}\` with ${resolution} resolution...`, { parse_mode: "Markdown" });
+    
+    // Validate resolution
+    if (!['1d', '7d', '30d'].includes(resolution)) {
+      return ctx.reply(`Invalid resolution: ${resolution}. Supported values are: 1d, 7d, 30d.`);
+    }
+    
+    // Extract base and quote tokens
+    let baseMint, quoteMint;
+    
+    if (pairQuery.includes('/')) {
+      const [baseToken, quoteToken] = pairQuery.split('/');
+      
+      // First, determine if these are mint addresses or symbols
+      // Solana addresses are 32-44 characters long
+      const isSolanaAddress = (str: string) => {
+        return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str.trim());
+      };
+      
+      // Map of common token symbols to their mint addresses
+      const commonTokens: Record<string, string> = {
+        'SOL': 'So11111111111111111111111111111111111111112',
+        'USDC': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'USDT': 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+        'BTC': '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E', // Solana wrapped BTC
+        'ETH': '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // Solana wrapped ETH
+        'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+        'SAMO': '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+        'JTO': 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'
+      };
+      
+      // Determine the actual mint addresses to use
+      if (isSolanaAddress(baseToken)) {
+        baseMint = baseToken.trim();
+      } else {
+        const baseTokenUpper = baseToken.toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(commonTokens, baseTokenUpper)) {
+          baseMint = commonTokens[baseTokenUpper];
+        } else {
+          return ctx.reply(`Unknown token symbol: ${baseToken}. Please use a well-known symbol or provide the full mint address.`);
+        }
+      }
+      
+      if (isSolanaAddress(quoteToken)) {
+        quoteMint = quoteToken.trim();
+      } else {
+        const quoteTokenUpper = quoteToken.toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(commonTokens, quoteTokenUpper)) {
+          quoteMint = commonTokens[quoteTokenUpper];
+        } else {
+          return ctx.reply(`Unknown token symbol: ${quoteToken}. Please use a well-known symbol or provide the full mint address.`);
+        }
+      }
+      
+    } else {
+      return ctx.reply('Please use the format TOKEN1/TOKEN2 or ADDRESS1/ADDRESS2. For example: SOL/USDC or So11111111111111111111111111111111111111112/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+    }
+    
+    // Determine time range based on resolution
+    const toTimestamp = Math.floor(Date.now() / 1000); // current time in seconds
+    let fromTimestamp = toTimestamp - (7 * 24 * 60 * 60); // Default: 7 days
+    
+    if (resolution === '1d') {
+      fromTimestamp = toTimestamp - (7 * 24 * 60 * 60); // 7 days for 1d resolution
+    } else if (resolution === '7d') {
+      fromTimestamp = toTimestamp - (30 * 24 * 60 * 60); // 30 days for 7d resolution
+    } else if (resolution === '30d') {
+      fromTimestamp = toTimestamp - (90 * 24 * 60 * 60); // 90 days for 30d resolution
+    }
+    
+    try {
+      // Log the mint addresses we're using
+      console.log(`Using mint addresses: ${baseMint} / ${quoteMint}`);
+      
+      // Make the API request with the mint addresses
+      const response = await vybeAPI.get_pair_trade_ohlcv_program({
+        baseMintAddress: baseMint,
+        quoteMintAddress: quoteMint,
+        resolution: resolution,
+        timeStart: fromTimestamp,
+        timeEnd: toTimestamp
+      });
+      
+      console.log('Pair OHLCV Response:', JSON.stringify(response, null, 2));
+      
+      // Check if response has data
+      if (!response || !response.data || !Array.isArray(response.data)) {
+        return ctx.reply(`No data found for trading pair: ${pairQuery}. Please check the token symbols and try again.`);
+      }
+      
+      const pairData = response.data;
+      
+      if (pairData.length === 0) {
+        return ctx.reply(`No trading data available for: ${pairQuery} in the last 7 days.`);
+      }
+      
+      // Create the header message with resolution info
+      // Show both symbols if we can identify them, otherwise show shortened addresses
+      let displayPair = pairQuery.toUpperCase();
+      
+      // Create a reverse mapping to help display friendly token names
+      const commonTokens: Record<string, string> = {
+        'SOL': 'So11111111111111111111111111111111111111112',
+        'USDC': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'USDT': 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+        'BTC': '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',
+        'ETH': '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
+        'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+        'SAMO': '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+        'JTO': 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'
+      };
+      
+      const mintToSymbol = Object.entries(commonTokens).reduce(
+        (acc, [symbol, address]) => {
+          acc[address] = symbol;
+          return acc;
+        }, {} as Record<string, string>
+      );
+      
+      // Try to get friendly symbols for the mint addresses
+      const baseSymbol = mintToSymbol[baseMint] || (baseMint.slice(0, 4) + '...' + baseMint.slice(-4));
+      const quoteSymbol = mintToSymbol[quoteMint] || (quoteMint.slice(0, 4) + '...' + quoteMint.slice(-4));
+      displayPair = `${baseSymbol}/${quoteSymbol}`;
+      
+      const headerMessage = `📊 *${displayPair} Trading Pair Data (${resolution} resolution)*\n\n`;
+      
+      // Format the pair data
+      let pairMessage = '';
+      
+      // Get programs with data for this pair
+      const programs = new Set(pairData.map(item => item.programId));
+      const programNames = new Map();
+      
+      // Map program IDs to names where possible
+      programs.forEach(programId => {
+        // Try to get program name from knownprogramIds.json
+        try {
+          const knownProgramsPath = path.join(__dirname, 'knownprogramIds.json');
+          
+          if (fs.existsSync(knownProgramsPath)) {
+            const knownProgramsData = fs.readFileSync(knownProgramsPath, 'utf8');
+            const knownPrograms = JSON.parse(knownProgramsData);
+            
+            if (knownPrograms.data && Array.isArray(knownPrograms.data)) {
+              const program = knownPrograms.data.find((p: any) => p.programId === programId);
+              if (program) {
+                programNames.set(programId, program.programName);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error reading program names:', error);
+        }
+        
+        // If program name not found, use short ID
+        if (!programNames.has(programId)) {
+          const shortId = programId.substring(0, 4) + '...' + programId.substring(programId.length - 4);
+          programNames.set(programId, shortId);
+        }
+      });
+      
+      // Add summary about available DEXs
+      pairMessage += `🏪 *Available on ${programs.size} DEXs:* `;
+      pairMessage += Array.from(programNames.values()).join(', ');
+      pairMessage += '\n\n';
+    
+      // Group data by program
+      const programData = new Map();
+      
+      pairData.forEach(item => {
+        if (!programData.has(item.programId)) {
+          programData.set(item.programId, []);
+        }
+        programData.get(item.programId).push(item);
+      });
+      
+      // Format price with appropriate decimals based on its value
+      const formatPrice = (price: number): string => {
+        if (price < 0.001) return price.toFixed(6);
+        if (price < 0.01) return price.toFixed(5);
+        if (price < 0.1) return price.toFixed(4);
+        if (price < 1) return price.toFixed(3);
+        if (price < 10) return price.toFixed(2);
+        return price.toFixed(2);
+      };
+      
+      // Get overall price range across all DEXs
+      let minPrice = Number.MAX_VALUE;
+      let maxPrice = 0;
+      let latestPrice = 0;
+      
+      pairData.forEach(item => {
+        const close = parseFloat(item.close);
+        if (close > maxPrice) maxPrice = close;
+        if (close < minPrice) minPrice = close;
+        
+        // Use the most recent close price
+        const time = new Date(item.time).getTime();
+        const latestTime = latestPrice ? new Date(pairData.find(i => parseFloat(i.close) === latestPrice)?.time || 0).getTime() : 0;
+        
+        if (time > latestTime) {
+          latestPrice = close;
+        }
+      });
+      
+      // Add price summary
+      pairMessage += `💰 *Latest Price:* $${formatPrice(latestPrice)}\n`;
+      pairMessage += `📉 *Price Range:* $${formatPrice(minPrice)} - $${formatPrice(maxPrice)}\n\n`;
+    
+      // Process each program
+      for (const [programId, items] of programData.entries()) {
+        // Sort items by time, newest first
+        items.sort((a: any, b: any) => new Date(b.time).getTime() - new Date(a.time).getTime());
+        
+        const programName = programNames.get(programId) || programId;
+        
+        // Add program header
+        pairMessage += `🔗 *${programName}:*\n`;
+        
+        // Add the latest price for this program
+        const latestItem = items[0];
+        const close = parseFloat(latestItem.close);
+        pairMessage += `   • Price: $${formatPrice(close)}\n`;
+        
+        // Add 24h volume if available
+        if (latestItem.volume) {
+          const volume = parseFloat(latestItem.volume);
+          pairMessage += `   • Volume: ${formatCurrency(volume).replace('$', '')}\n`;
+        }
+        
+        pairMessage += '\n';
+      }
+    
+      // Send the combined message
+      return ctx.reply(headerMessage + pairMessage, { parse_mode: "Markdown" });
+      
+    } catch (mintError) {
+      console.error('Error resolving mint addresses:', mintError);
+      return ctx.reply(`Error: Unable to resolve token mint addresses. Please try using actual mint addresses instead of symbols.`);
+    }
+  } catch (error) {
+    console.error('Error in pair command:', error);
+    return ctx.reply(`Error fetching trading pair data: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 });
 
@@ -538,8 +800,6 @@ bot.command("nfts", async (ctx) => {
     return ctx.reply(errorMessage);
   }
 });
-
-
 
 // Token Balance command handler
 bot.command("token_balance", async (ctx) => {
