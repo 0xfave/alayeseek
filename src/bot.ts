@@ -237,6 +237,120 @@ Powered by Vybe API 💎`;
   return ctx.reply(helpMessage, { parse_mode: "Markdown" });
 });
 
+// Market command - Get OHLCV data for a trading pair or market
+bot.command("market", async (ctx) => {
+  // Get the market query from the message text
+  const marketQuery = ctx.message?.text?.split('/market ')[1]?.trim();
+  
+  if (!ctx.message || !marketQuery) {
+    return ctx.reply('Please provide a market symbol (e.g. SOL/USDC) or a Solana market ID. Usage: /market <market_symbol_or_id>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    await ctx.reply(`Fetching market data for: \`${marketQuery}\`...`, { parse_mode: "Markdown" });
+    
+    // Determine if input is a market ID (address-like) or a symbol
+    const isMarketId = marketQuery.length > 30 && !marketQuery.includes('/');
+    const marketId = isMarketId ? marketQuery : marketQuery.toUpperCase(); // If it's a symbol, ensure uppercase
+    
+    console.log(`Processing ${isMarketId ? 'market ID' : 'market symbol'}: ${marketId}`);
+    
+    // Format the resolution and time range parameters
+    const resolution = '1d'; // daily candles
+    const toTimestamp = Math.floor(Date.now() / 1000); // current time in seconds
+    const fromTimestamp = toTimestamp - (7 * 24 * 60 * 60); // 7 days ago
+    
+    // Make the API request
+    const response = await vybeAPI.get_market_filtered_ohlcv({
+      marketId: marketId, // Use the processed marketId variable
+      resolution: resolution,
+      timeStart: fromTimestamp,
+      timeEnd: toTimestamp
+    });
+    
+    console.log('Market OHLCV Response:', JSON.stringify(response, null, 2));
+    
+    // Check if response has data
+    if (!response || !response.data || !Array.isArray(response.data)) {
+      return ctx.reply(`No market data found for: ${marketQuery}. Please check the market symbol and try again.`);
+    }
+    
+    const ohlcvData = response.data;
+    
+    if (ohlcvData.length === 0) {
+      return ctx.reply(`No market data available for: ${marketQuery} in the last 7 days.`);
+    }
+    
+    // Create the header message
+    // Create the header message - if it's a market ID, don't try to uppercase it
+    const headerMessage = `📊 *${isMarketId ? marketQuery : marketQuery.toUpperCase()} Market Data*\n\n`;
+    
+    // Format the OHLCV data
+    let ohlcvMessage = '';
+    
+    // Get the latest candle for summary
+    const latestCandle = ohlcvData[ohlcvData.length - 1];
+    const currentPrice = parseFloat(latestCandle.close);
+    
+    // Calculate 24h change
+    const prevDayCandle = ohlcvData.length > 1 ? ohlcvData[ohlcvData.length - 2] : null;
+    let priceChange = 0;
+    let priceChangePercent = 0;
+    
+    if (prevDayCandle) {
+      const prevClose = parseFloat(prevDayCandle.close);
+      priceChange = currentPrice - prevClose;
+      priceChangePercent = (priceChange / prevClose) * 100;
+    }
+    
+    // Format price with appropriate decimals based on its value
+    const formatPrice = (price: number): string => {
+      if (price < 0.001) return price.toFixed(6);
+      if (price < 0.01) return price.toFixed(5);
+      if (price < 0.1) return price.toFixed(4);
+      if (price < 1) return price.toFixed(3);
+      if (price < 10) return price.toFixed(2);
+      return price.toFixed(2);
+    };
+    
+    // Create the summary section
+    ohlcvMessage += `💰 *Current Price:* $${formatPrice(currentPrice)}\n`;
+    ohlcvMessage += `${priceChangePercent >= 0 ? '📈' : '📉'} *24h Change:* ${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}% (${priceChange >= 0 ? '+' : ''}$${formatPrice(priceChange)})\n\n`;
+    
+    // Add daily OHLCV data
+    ohlcvMessage += `📅 *Last 7 Days:*\n`;
+    
+    // Process each candle (in reverse order - newest first)
+    ohlcvData.slice().reverse().forEach((candle) => {
+      const date = new Date(candle.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const open = parseFloat(candle.open);
+      const high = parseFloat(candle.high);
+      const low = parseFloat(candle.low);
+      const close = parseFloat(candle.close);
+      const volume = parseFloat(candle.volume);
+      
+      // Format volume with K, M, B suffixes
+      const formattedVolume = formatCurrency(volume).replace('$', '');
+      
+      // Add emoji based on candle direction (green/red)
+      const candleEmoji = close >= open ? '🟢' : '🔴';
+      
+      ohlcvMessage += `${candleEmoji} *${date}*: O:$${formatPrice(open)} H:$${formatPrice(high)} L:$${formatPrice(low)} C:$${formatPrice(close)} Vol:${formattedVolume}\n`;
+    });
+    
+    // Send the combined message
+    return ctx.reply(headerMessage + ohlcvMessage, { parse_mode: "Markdown" });
+    
+  } catch (error) {
+    console.error('Error in market command:', error);
+    return ctx.reply(`Error fetching market data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+});
+
 // PnL command handler
 bot.command("pnl", async (ctx) => {
   // Get the wallet address from the message text
