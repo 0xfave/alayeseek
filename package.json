@@ -1,0 +1,16 @@
+{
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "@api/vybe-api": "file:.api/apis/vybe-api",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "grammy": "^1.35.1"
+  },
+  "scripts": {
+    "start": "ts-node src/bot.ts"
+  }
+}
