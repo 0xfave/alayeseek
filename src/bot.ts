@@ -33,7 +33,6 @@ bot.command("start", (ctx) => {
 • */report* - Get detailed wallet report
 • */nfts* - View NFT portfolio
 • */token_balance* - View current token holdings
-• */token_history* - View token balance history
 
 *Token Commands:*
 • */top_holders* - View top holders of a token
@@ -69,7 +68,6 @@ bot.command("help", (ctx) => {
 • */report* - Get detailed wallet report
 • */nfts* - View NFT portfolio
 • */token_balance* - View current token holdings
-• */token_history* - View token balance history
 
 *Token Commands:*
 • */top_holders* - View top holders of a token
@@ -282,130 +280,7 @@ bot.command("nfts", async (ctx) => {
   }
 });
 
-// Token History command handler
-bot.command("token_history", async (ctx) => {
-  // Get the wallet address from the message text
-  const messageText = ctx.message?.text?.trim() || '';
-  const args = messageText.split(' ').filter(Boolean).slice(1);
-  const walletAddress = args[0];
 
-  // Check if wallet address was provided
-  if (!walletAddress) {
-    return ctx.reply('Please provide a wallet address. Usage: /token_history <wallet_address> [token_address]');
-  }
-
-  // Optional token address to filter by specific token
-  const tokenAddress = args[1];
-  
-  // Set the API key
-  vybeAPI.auth(VYBE_API_KEY);
-  
-  try {
-    // Notify user that we're fetching data
-    const filterMsg = tokenAddress ? ` for token ${tokenAddress.substring(0, 6)}...${tokenAddress.substring(tokenAddress.length - 4)}` : '';
-    await ctx.reply(`Fetching token balance history for wallet: \`${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}\`${filterMsg}...`, { parse_mode: "Markdown" });
-    
-    // Call the Vybe API to get wallet token time-series data
-    const metadata: any = { ownerAddress: walletAddress };
-    if (tokenAddress) {
-      metadata.tokenAddress = tokenAddress;
-    }
-    
-    const response = await vybeAPI.get_wallet_tokens_ts(metadata);
-    const tokenData = response.data;
-    
-    // Ensure we have time-series data in an array
-    const timeSeries = Array.isArray(tokenData.timeSeries) ? tokenData.timeSeries : [];
-    
-    if (timeSeries.length === 0) {
-      return ctx.reply("No token history data found for this wallet.", { parse_mode: "Markdown" });
-    }
-    
-    // Sort time-series data by date (newest first)
-    const sortedTimeSeries = [...timeSeries].sort((a, b) => {
-      const dateA = new Date(a.timestamp || 0);
-      const dateB = new Date(b.timestamp || 0);
-      return dateB.getTime() - dateA.getTime();
-    });
-    
-    // Get the most recent and oldest data points
-    const mostRecent = sortedTimeSeries[0];
-    const oldest = sortedTimeSeries[sortedTimeSeries.length - 1];
-    
-    // Calculate total growth/loss
-    let growthPercent = 0;
-    if (oldest.valueUsd && mostRecent.valueUsd && oldest.valueUsd > 0) {
-      growthPercent = ((mostRecent.valueUsd - oldest.valueUsd) / oldest.valueUsd) * 100;
-    }
-    
-    // Format date for display
-    const formatDate = (timestamp: string | number | Date) => {
-      const date = new Date(timestamp);
-      return date.toISOString().split('T')[0];
-    };
-    
-    // Format the summary
-    const summaryResponse = `💸 *Token Balance History for ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}*\n\n`+
-      `📈 *Overview (${formatDate(oldest.timestamp || 0)} - ${formatDate(mostRecent.timestamp || 0)})*\n`+
-      `🔹 Current Value: $${(mostRecent.valueUsd || 0).toFixed(2)} (${(mostRecent.valueSol || 0).toFixed(4)} SOL)\n`+
-      `🔹 Starting Value: $${(oldest.valueUsd || 0).toFixed(2)} (${(oldest.valueSol || 0).toFixed(4)} SOL)\n`+
-      `🔹 Growth: ${growthPercent.toFixed(2)}%\n\n`+
-      `📊 *Recent Token History:*`;
-    
-    await ctx.reply(summaryResponse, { parse_mode: "Markdown" });
-    
-    // Show the most recent 5 entries
-    const recentEntries = sortedTimeSeries.slice(0, 5);
-    
-    for (const entry of recentEntries) {
-      const date = formatDate(entry.timestamp || 0);
-      const valueUsd = entry.valueUsd || 0;
-      const valueSol = entry.valueSol || 0;
-      
-      let tokenDetailsMessage = `*${date}*\n`+
-        `🔹 Portfolio Value: $${valueUsd.toFixed(2)} (${valueSol.toFixed(4)} SOL)\n\n`;
-      
-      // If we have individual token details, show the top 3 tokens by value
-      if (Array.isArray(entry.tokens) && entry.tokens.length > 0) {
-        const sortedTokens = [...entry.tokens]
-          .sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0))
-          .slice(0, 3);
-        
-        tokenDetailsMessage += `*Top Tokens:*\n`;
-        
-        sortedTokens.forEach((token, index) => {
-          const tokenValueUsd = token.valueUsd || 0;
-          const tokenAmount = token.amount || 0;
-          const symbol = token.symbol || token.address?.substring(0, 6) || 'Unknown';
-          
-          tokenDetailsMessage += `${index + 1}. ${symbol}: $${tokenValueUsd.toFixed(2)} (${tokenAmount.toLocaleString()} tokens)\n`;
-        });
-      }
-      
-      await ctx.reply(tokenDetailsMessage, { parse_mode: "Markdown" });
-    }
-    
-    // Let the user know if there are more data points available
-    if (sortedTimeSeries.length > 5) {
-      await ctx.reply(`*Note:* Showing 5 most recent entries out of ${sortedTimeSeries.length} total data points available.`, { parse_mode: "Markdown" });
-    }
-    
-  } catch (error: any) {
-    console.error('Error fetching token history data:', error);
-    let errorMessage = 'Failed to fetch token balance history.';
-    
-    // Provide more specific error messages
-    if (error.response) {
-      if (error.response.status === 400) {
-        errorMessage = 'Invalid wallet address. Please check and try again.';
-      } else if (error.response.status === 500) {
-        errorMessage = 'Server error occurred. Please try again later.';
-      }
-    }
-    
-    return ctx.reply(errorMessage);
-  }
-});
 
 // Token Balance command handler
 bot.command("token_balance", async (ctx) => {
