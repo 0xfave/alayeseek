@@ -587,6 +587,134 @@ bot.command("report", async (ctx) => {
   }
 });
 
+// Top Holders command - shows the top 10 holders of a given token
+bot.command("top_holders", async (ctx) => {
+  // Get the token address from the message text
+  const messageText = ctx.message?.text?.trim() || '';
+  const args = messageText.split(' ').filter(Boolean).slice(1);
+  const tokenMintAddress = args[0];
+
+  // Check if token mint address was provided
+  if (!tokenMintAddress) {
+    return ctx.reply('Please provide a token mint address. Usage: /top_holders <token_mint_address>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    await ctx.reply(`Fetching top holders for token: \`${tokenMintAddress.substring(0, 6)}...${tokenMintAddress.substring(tokenMintAddress.length - 4)}\`...`, { parse_mode: "Markdown" });
+    
+    console.log('Calling Vybe API to get top holders for:', tokenMintAddress);
+    
+    // Fetch top holders data with a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('API request timed out after 15 seconds')), 15000);
+    });
+    
+    const fetchPromise = vybeAPI.get_top_holders({ 
+      mintAddress: tokenMintAddress,
+      limit: 10 // Limit to top 10 holders
+    });
+    
+    // Race between the fetch and the timeout
+    const response: any = await Promise.race([fetchPromise, timeoutPromise]);
+    
+    // If we get here, the fetch completed before the timeout
+    
+    console.log('API Response:', JSON.stringify(response, null, 2));
+    
+    // Check if response has data
+    if (!response) {
+      return ctx.reply(`Error: No response received from API for token: ${tokenMintAddress}`);
+    }
+    
+    if (!response.data) {
+      return ctx.reply(`Error: Response missing data property for token: ${tokenMintAddress}`);
+    }
+    
+    // Handle the nested data structure (response.data.data)
+    if (!response.data.data) {
+      return ctx.reply(`Error: Response missing nested data property for token: ${tokenMintAddress}`);
+    }
+    
+    const holders = response.data.data;
+    
+    if (!Array.isArray(holders)) {
+      return ctx.reply(`Error: Expected array but got ${typeof holders} for token: ${tokenMintAddress}`);
+    }
+    
+    if (holders.length === 0) {
+      return ctx.reply(`No holders found for token: ${tokenMintAddress}`);
+    }
+    
+    // Get the token symbol from the first holder's data
+    const tokenSymbol = holders[0].tokenSymbol || "Unknown";
+    
+    // Create the header message
+    const headerMessage = `🏆 *TOP ${Math.min(10, holders.length)} HOLDERS OF ${tokenSymbol}*\n` +
+                      `Token: \`${tokenMintAddress.substring(0, 6)}...${tokenMintAddress.substring(tokenMintAddress.length - 4)}\`\n\n`;
+    
+    // Create the holders list message
+    let holdersMessage = '';
+    
+    // Process each holder
+    holders.slice(0, 10).forEach((holder: any, index: number) => {
+      // Format owner address for display
+      const ownerDisplay = holder.ownerName ? 
+        `${holder.ownerName} (${holder.ownerAddress.substring(0, 4)}...${holder.ownerAddress.substring(holder.ownerAddress.length - 4)})` :
+        `${holder.ownerAddress.substring(0, 6)}...${holder.ownerAddress.substring(holder.ownerAddress.length - 4)}`;
+      
+      // Format balance with commas and fixed decimal places
+      const formattedBalance = Number(parseFloat(holder.balance)).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      
+      // Format value in USD
+      const valueUsd = typeof holder.valueUsd === 'number' ? holder.valueUsd : 
+                     typeof holder.valueUsd === 'string' ? parseFloat(holder.valueUsd) : 0;
+      
+      const formattedValueUsd = valueUsd.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      
+      // Format percentage with fixed decimal places
+      const percentageOfSupply = typeof holder.percentageOfSupplyHeld === 'number' ? holder.percentageOfSupplyHeld : 
+                               typeof holder.percentageOfSupplyHeld === 'string' ? parseFloat(holder.percentageOfSupplyHeld) : 0;
+      
+      const formattedPercentage = percentageOfSupply.toFixed(2);
+      
+      // Create the holder entry
+      holdersMessage += `${index + 1}. *${ownerDisplay}*\n` +
+                       `   • Balance: ${formattedBalance} ${tokenSymbol}\n` +
+                       `   • Value: $${formattedValueUsd}\n` +
+                       `   • % of Supply: ${formattedPercentage}%\n\n`;
+    });
+    
+    // Send the combined message with header and holders list
+    await ctx.reply(headerMessage + holdersMessage, { parse_mode: "Markdown" });
+    
+  } catch (error: any) {
+    console.error('Error fetching top holders:', error);
+    const errorMessage = error.message || 'Unknown error';
+    const errorResponse = error.response ? JSON.stringify(error.response.data || {}, null, 2) : 'No response data';
+    console.error('API Error details:', errorMessage, errorResponse);
+    
+    // Check for timeout or connection errors
+    if (errorMessage.includes('timeout') || 
+        errorMessage.includes('ConnectTimeoutError') || 
+        errorMessage.includes('fetch failed') || 
+        (error.cause && error.cause.code === 'UND_ERR_CONNECT_TIMEOUT')) {
+      return ctx.reply('⚠️ Unable to connect to the Vybe API server. The service might be temporarily unavailable. Please try again later.');
+    }
+    
+    return ctx.reply(`Failed to fetch top holders: ${errorMessage}. Please try again later.`);
+  }
+});
+
 // Start the bot
 bot.start();
 
