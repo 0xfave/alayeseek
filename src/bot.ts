@@ -32,6 +32,7 @@ bot.command("start", (ctx) => {
 • */pnl* - Check wallet profit and loss
 • */report* - Get detailed wallet report
 • */nfts* - View NFT portfolio
+• */token_balance* - View current token holdings
 • */token_history* - View token balance history
 
 *Token Commands:*
@@ -67,6 +68,7 @@ bot.command("help", (ctx) => {
 • */pnl* - Check wallet profit and loss
 • */report* - Get detailed wallet report
 • */nfts* - View NFT portfolio
+• */token_balance* - View current token holdings
 • */token_history* - View token balance history
 
 *Token Commands:*
@@ -266,6 +268,266 @@ bot.command("nfts", async (ctx) => {
   } catch (error: any) {
     console.error('Error fetching NFT data:', error);
     let errorMessage = 'Failed to fetch NFT data.';
+    
+    // Provide more specific error messages
+    if (error.response) {
+      if (error.response.status === 400) {
+        errorMessage = 'Invalid wallet address. Please check and try again.';
+      } else if (error.response.status === 500) {
+        errorMessage = 'Server error occurred. Please try again later.';
+      }
+    }
+    
+    return ctx.reply(errorMessage);
+  }
+});
+
+// Token History command handler
+bot.command("token_history", async (ctx) => {
+  // Get the wallet address from the message text
+  const messageText = ctx.message?.text?.trim() || '';
+  const args = messageText.split(' ').filter(Boolean).slice(1);
+  const walletAddress = args[0];
+
+  // Check if wallet address was provided
+  if (!walletAddress) {
+    return ctx.reply('Please provide a wallet address. Usage: /token_history <wallet_address> [token_address]');
+  }
+
+  // Optional token address to filter by specific token
+  const tokenAddress = args[1];
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    const filterMsg = tokenAddress ? ` for token ${tokenAddress.substring(0, 6)}...${tokenAddress.substring(tokenAddress.length - 4)}` : '';
+    await ctx.reply(`Fetching token balance history for wallet: \`${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}\`${filterMsg}...`, { parse_mode: "Markdown" });
+    
+    // Call the Vybe API to get wallet token time-series data
+    const metadata: any = { ownerAddress: walletAddress };
+    if (tokenAddress) {
+      metadata.tokenAddress = tokenAddress;
+    }
+    
+    const response = await vybeAPI.get_wallet_tokens_ts(metadata);
+    const tokenData = response.data;
+    
+    // Ensure we have time-series data in an array
+    const timeSeries = Array.isArray(tokenData.timeSeries) ? tokenData.timeSeries : [];
+    
+    if (timeSeries.length === 0) {
+      return ctx.reply("No token history data found for this wallet.", { parse_mode: "Markdown" });
+    }
+    
+    // Sort time-series data by date (newest first)
+    const sortedTimeSeries = [...timeSeries].sort((a, b) => {
+      const dateA = new Date(a.timestamp || 0);
+      const dateB = new Date(b.timestamp || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
+    
+    // Get the most recent and oldest data points
+    const mostRecent = sortedTimeSeries[0];
+    const oldest = sortedTimeSeries[sortedTimeSeries.length - 1];
+    
+    // Calculate total growth/loss
+    let growthPercent = 0;
+    if (oldest.valueUsd && mostRecent.valueUsd && oldest.valueUsd > 0) {
+      growthPercent = ((mostRecent.valueUsd - oldest.valueUsd) / oldest.valueUsd) * 100;
+    }
+    
+    // Format date for display
+    const formatDate = (timestamp: string | number | Date) => {
+      const date = new Date(timestamp);
+      return date.toISOString().split('T')[0];
+    };
+    
+    // Format the summary
+    const summaryResponse = `💸 *Token Balance History for ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}*\n\n`+
+      `📈 *Overview (${formatDate(oldest.timestamp || 0)} - ${formatDate(mostRecent.timestamp || 0)})*\n`+
+      `🔹 Current Value: $${(mostRecent.valueUsd || 0).toFixed(2)} (${(mostRecent.valueSol || 0).toFixed(4)} SOL)\n`+
+      `🔹 Starting Value: $${(oldest.valueUsd || 0).toFixed(2)} (${(oldest.valueSol || 0).toFixed(4)} SOL)\n`+
+      `🔹 Growth: ${growthPercent.toFixed(2)}%\n\n`+
+      `📊 *Recent Token History:*`;
+    
+    await ctx.reply(summaryResponse, { parse_mode: "Markdown" });
+    
+    // Show the most recent 5 entries
+    const recentEntries = sortedTimeSeries.slice(0, 5);
+    
+    for (const entry of recentEntries) {
+      const date = formatDate(entry.timestamp || 0);
+      const valueUsd = entry.valueUsd || 0;
+      const valueSol = entry.valueSol || 0;
+      
+      let tokenDetailsMessage = `*${date}*\n`+
+        `🔹 Portfolio Value: $${valueUsd.toFixed(2)} (${valueSol.toFixed(4)} SOL)\n\n`;
+      
+      // If we have individual token details, show the top 3 tokens by value
+      if (Array.isArray(entry.tokens) && entry.tokens.length > 0) {
+        const sortedTokens = [...entry.tokens]
+          .sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0))
+          .slice(0, 3);
+        
+        tokenDetailsMessage += `*Top Tokens:*\n`;
+        
+        sortedTokens.forEach((token, index) => {
+          const tokenValueUsd = token.valueUsd || 0;
+          const tokenAmount = token.amount || 0;
+          const symbol = token.symbol || token.address?.substring(0, 6) || 'Unknown';
+          
+          tokenDetailsMessage += `${index + 1}. ${symbol}: $${tokenValueUsd.toFixed(2)} (${tokenAmount.toLocaleString()} tokens)\n`;
+        });
+      }
+      
+      await ctx.reply(tokenDetailsMessage, { parse_mode: "Markdown" });
+    }
+    
+    // Let the user know if there are more data points available
+    if (sortedTimeSeries.length > 5) {
+      await ctx.reply(`*Note:* Showing 5 most recent entries out of ${sortedTimeSeries.length} total data points available.`, { parse_mode: "Markdown" });
+    }
+    
+  } catch (error: any) {
+    console.error('Error fetching token history data:', error);
+    let errorMessage = 'Failed to fetch token balance history.';
+    
+    // Provide more specific error messages
+    if (error.response) {
+      if (error.response.status === 400) {
+        errorMessage = 'Invalid wallet address. Please check and try again.';
+      } else if (error.response.status === 500) {
+        errorMessage = 'Server error occurred. Please try again later.';
+      }
+    }
+    
+    return ctx.reply(errorMessage);
+  }
+});
+
+// Token Balance command handler
+bot.command("token_balance", async (ctx) => {
+  // Get the wallet address from the message text
+  const messageText = ctx.message?.text?.trim() || '';
+  const args = messageText.split(' ').filter(Boolean).slice(1);
+  const walletAddress = args[0];
+
+  // Check if wallet address was provided
+  if (!walletAddress) {
+    return ctx.reply('Please provide a wallet address. Usage: /token_balance <wallet_address>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    await ctx.reply(`Fetching current token balances for wallet: \`${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}\`...`, { parse_mode: "Markdown" });
+    
+    // Call the Vybe API to get wallet token balances
+    // Using any type to handle complex parameter requirements
+    const metadata: any = { 
+      ownerAddress: walletAddress,
+      // Include default required parameters
+      minAssetValue: '0',
+      maxAssetValue: '9999999999'
+    };
+    
+    const response = await vybeAPI.get_wallet_tokens(metadata);
+    
+    const tokenData = response.data;
+    
+    // Get the total portfolio value - field names match the actual API response
+    const totalValueUsd = typeof tokenData.totalTokenValueUsd === 'number' ? tokenData.totalTokenValueUsd : 
+                         typeof tokenData.totalTokenValueUsd === 'string' ? parseFloat(tokenData.totalTokenValueUsd) : 0;
+    
+    // Get native SOL value (we'll show this separately)
+    const nativeSolBalance = typeof tokenData.stakedSolBalance === 'number' ? tokenData.stakedSolBalance : 
+                            typeof tokenData.stakedSolBalance === 'string' ? parseFloat(tokenData.stakedSolBalance) : 0;
+    
+    // Get tokens array from the 'data' field in the response
+    const tokens = Array.isArray(tokenData.data) ? tokenData.data : [];
+    
+    if (tokens.length === 0) {
+      return ctx.reply("No token balances found for this wallet.", { parse_mode: "Markdown" });
+    }
+    
+    // Format the summary
+    const summaryResponse = `💰 *Token Balances for ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}*\n\n`+
+      `💸 *Portfolio Overview*\n`+
+      `🔹 Total Value: $${totalValueUsd.toFixed(2)}\n`+
+      `🔹 Staked SOL: ${nativeSolBalance.toFixed(4)} SOL\n`+
+      `🔹 Unique Tokens: ${tokens.length}\n\n`+
+      `📃 *Top Token Holdings:*`;
+    
+    await ctx.reply(summaryResponse, { parse_mode: "Markdown" });
+    
+    // Sort tokens by USD value and show top 10
+    const sortedTokens = [...tokens]
+      .sort((a, b) => (typeof b.valueUsd === 'number' ? b.valueUsd : 0) - (typeof a.valueUsd === 'number' ? a.valueUsd : 0))
+      .slice(0, 10);
+    
+    // Group tokens into batches of 5 for better readability
+    const tokenBatches = [];
+    for (let i = 0; i < sortedTokens.length; i += 5) {
+      tokenBatches.push(sortedTokens.slice(i, i + 5));
+    }
+    
+    // Process each batch
+    for (let batchIndex = 0; batchIndex < tokenBatches.length; batchIndex++) {
+      const batch = tokenBatches[batchIndex];
+      let tokenDetailsMessage = ``;
+      
+      batch.forEach((token, index) => {
+        const actualIndex = batchIndex * 5 + index + 1;
+        const tokenValueUsd = typeof token.valueUsd === 'number' ? token.valueUsd : 
+                             typeof token.valueUsd === 'string' ? parseFloat(token.valueUsd) : 0;
+        const tokenAmount = typeof token.amount === 'number' ? token.amount : 
+                          typeof token.amount === 'string' ? parseFloat(token.amount) : 0;
+        
+        // Format large numbers with commas and truncate very long decimal places
+        const formattedAmount = tokenAmount > 1000000 
+          ? `${(tokenAmount / 1000000).toFixed(2)}M` 
+          : tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        
+        // Display token details
+        tokenDetailsMessage += `*${actualIndex}. ${token.symbol || token.mintAddress?.substring(0, 6) || 'Unknown'}*\n`+
+          `🔹 Value: $${tokenValueUsd.toFixed(2)}\n`+
+          `🔹 Amount: ${formattedAmount} tokens\n`;
+        
+        // Add price per token if available and not zero
+        if (tokenAmount > 0 && token.priceUsd) {
+          const pricePerToken = typeof token.priceUsd === 'number' ? token.priceUsd : 
+                               typeof token.priceUsd === 'string' ? parseFloat(token.priceUsd) : tokenValueUsd / tokenAmount;
+          tokenDetailsMessage += `🔹 Price: $${pricePerToken.toFixed(6)} per token\n`;
+          
+          // Add verified status and logo if available
+          if (token.verified === true) {
+            tokenDetailsMessage += `🔹 Verified: ✅\n`;
+          }
+          
+          // Add token category if available
+          if (token.category) {
+            tokenDetailsMessage += `🔹 Category: ${token.category}\n`;
+          }
+        }
+        
+        tokenDetailsMessage += `\n`;
+      });
+      
+      await ctx.reply(tokenDetailsMessage, { parse_mode: "Markdown" });
+    }
+    
+    // Show note if there are more tokens
+    if (tokens.length > 10) {
+      await ctx.reply(`*Note:* Showing top 10 tokens out of ${tokens.length} total tokens in this wallet.`, { parse_mode: "Markdown" });
+    }
+    
+  } catch (error: any) {
+    console.error('Error fetching token balance data:', error);
+    let errorMessage = 'Failed to fetch token balances.';
     
     // Provide more specific error messages
     if (error.response) {
