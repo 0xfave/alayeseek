@@ -28,6 +28,30 @@ Alayeseke Bot offers a comprehensive set of commands to analyze Solana blockchai
 - `/holder_portfolio` - Examine a specific holder's portfolio
 - `/help` - Show this help message
 
+## How It Works
+
+The Alayeseke bot is a Telegram bot that shows Solana blockchain data. It uses the Vybe API to get this data and show it to users.
+
+Users talk to the bot by sending commands with a slash ("/"). Here are the main things the bot can do:
+
+* **/start**: Welcomes users and tells them about the bot
+* **/help**: Shows all commands the bot can do
+* **/top_holders**: Shows who owns the most of a token
+* **/program**: Shows info about Solana programs (apps)
+* **/market**: Shows price charts for trading pairs on markets
+* **/pair**: Shows trading info across different exchanges
+
+When a user sends a command, the bot:
+1. Checks what the user asked for
+2. Sends a request to the Vybe API
+3. Gets data back from the API
+4. Formats the data to look nice
+5. Sends the formatted info back to the user
+
+The bot handles errors if the API doesn't work or if users type commands wrong. It also formats big numbers to be easy to read, like showing "$5.2M" instead of "$5,200,000".
+
+This makes it easy for users to get Solana blockchain data right in Telegram without going to other websites.
+
 ## Architecture
 
 The bot is built using TypeScript and leverages the Vybe API to fetch Solana blockchain data. It uses the GrammY framework for Telegram bot functionality.
