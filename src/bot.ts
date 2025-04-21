@@ -4,6 +4,19 @@ import vybeAPI from '@api/vybe-api';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Helper function to format currency with K, M, B suffixes
+function formatCurrency(value: number): string {
+  if (value >= 1e9) {
+    return `$${(value / 1e9).toFixed(2)}B`;
+  } else if (value >= 1e6) {
+    return `$${(value / 1e6).toFixed(2)}M`;
+  } else if (value >= 1e3) {
+    return `$${(value / 1e3).toFixed(2)}K`;
+  } else {
+    return `$${value.toFixed(2)}`;
+  }
+}
+
 // Load environment variables
 dotenv.config();
 
@@ -23,6 +36,151 @@ if (!VYBE_API_KEY) {
 
 // Initialize the bot with the token from environment variables
 const bot = new Bot(TELEGRAM_TOKEN);
+
+// Program command - get details about a Solana program by name or ID
+bot.command("program", async (ctx) => {
+  // Get the program name or ID from the message text
+  const programQuery = ctx.message?.text?.split('/program ')[1]?.trim();
+  
+  if (!ctx.message || !programQuery) {
+    return ctx.reply('Please provide a program name or ID. Usage: /program <program_name_or_id>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    await ctx.reply(`Searching for program: \`${programQuery}\`...`, { parse_mode: "Markdown" });
+    
+    // Load the known program IDs
+    const knownProgramsPath = path.join(__dirname, 'knownprogramIds.json');
+    
+    if (!fs.existsSync(knownProgramsPath)) {
+      return ctx.reply('Error: Known program IDs file not found');
+    }
+    
+    const knownProgramsData = fs.readFileSync(knownProgramsPath, 'utf8');
+    const knownPrograms = JSON.parse(knownProgramsData);
+    
+    if (!knownPrograms.data || !Array.isArray(knownPrograms.data)) {
+      return ctx.reply('Error: Invalid format in known program IDs file');
+    }
+    
+    // Find program ID by matching name or ID
+    const programMatch = knownPrograms.data.find((p: any) => {
+      return (
+        p.programId.toLowerCase() === programQuery.toLowerCase() || 
+        p.programName.toLowerCase().includes(programQuery.toLowerCase())
+      );
+    });
+    
+    if (!programMatch) {
+      return ctx.reply(`No program found matching: ${programQuery}\n\nPlease try a different name or ID.`);
+    }
+    
+    const programId = programMatch.programId;
+    const programName = programMatch.programName;
+    
+    console.log(`Found program match: ${programName} (${programId})`);
+    
+    // Get program details - making sure to match the expected parameter names
+    const programDetailsPromise = vybeAPI.get_program({ programAddress: programId });
+    const programTVLPromise = vybeAPI.get_program_tvl({ 
+      programAddress: programId,
+      resolution: '1d' // Try 1d (one day) as the resolution value
+    });
+    
+    // Wait for both API calls to complete
+    const [programDetails, programTVL] = await Promise.all([programDetailsPromise, programTVLPromise]);
+    
+    console.log('Program Details Response:', JSON.stringify(programDetails, null, 2));
+    console.log('Program TVL Response:', JSON.stringify(programTVL, null, 2));
+    
+    // Check for errors in responses
+    if (!programDetails || !programDetails.data) {
+      return ctx.reply(`Error: Failed to fetch program details for ${programName} (${programId})`);
+    }
+    
+    // Format program details
+    const details = programDetails.data;
+    
+    // Format TVL data if available
+    let tvlInfo = 'TVL data not available';
+    let tvlHistoryInfo = '';
+    
+    if (programTVL && programTVL.data && programTVL.data.data && Array.isArray(programTVL.data.data)) {
+      // Get the most recent TVL value (last item in the array)
+      const tvlDataPoints = programTVL.data.data;
+      
+      if (tvlDataPoints.length > 0) {
+        // Most recent TVL (today)
+        const latestTvl = tvlDataPoints[tvlDataPoints.length - 1];
+        const tvlValue = parseFloat(latestTvl.tvl);
+        tvlInfo = formatCurrency(tvlValue);
+        
+        // Show TVL history (last 7 days)
+        const lastWeekData = tvlDataPoints.slice(-7);
+        
+        tvlHistoryInfo = `\n\n📈 *TVL History (Last 7 Days):*\n`;
+        lastWeekData.forEach(dataPoint => {
+          const date = new Date(dataPoint.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const value = parseFloat(dataPoint.tvl);
+          tvlHistoryInfo += `   • ${date}: ${formatCurrency(value)}\n`;
+        });
+      }
+    }
+    
+    // Create message header with program info
+    const headerMessage = `🧩 *${programName}*\n` +
+                         `Program ID: \`${programId}\`\n\n`;
+    
+    // Create message body with program details
+    let detailsMessage = '';
+    
+    // Add TVL info
+    detailsMessage += `💰 *Total Value Locked:* ${tvlInfo}\n`;
+    // Add TVL history if available
+    if (tvlHistoryInfo) {
+      detailsMessage += tvlHistoryInfo + '\n';
+    } else {
+      detailsMessage += '\n';
+    }
+    
+    // Add transaction counts if available
+    if (details.txCount24h || details.txCount7d || details.txCount30d) {
+      detailsMessage += `📊 *Transaction Counts:*\n`;
+      if (details.txCount24h) detailsMessage += `   • 24h: ${Number(details.txCount24h).toLocaleString()}\n`;
+      if (details.txCount7d) detailsMessage += `   • 7d: ${Number(details.txCount7d).toLocaleString()}\n`;
+      if (details.txCount30d) detailsMessage += `   • 30d: ${Number(details.txCount30d).toLocaleString()}\n`;
+      detailsMessage += '\n';
+    }
+    
+    // Add fee information if available
+    if (details.fee24h || details.fee7d || details.fee30d) {
+      detailsMessage += `💵 *Fee Information:*\n`;
+      if (details.fee24h) detailsMessage += `   • 24h: ${formatCurrency(Number(details.fee24h))}\n`;
+      if (details.fee7d) detailsMessage += `   • 7d: ${formatCurrency(Number(details.fee7d))}\n`;
+      if (details.fee30d) detailsMessage += `   • 30d: ${formatCurrency(Number(details.fee30d))}\n`;
+      detailsMessage += '\n';
+    }
+    
+    // Add volume information if available
+    if (details.volume24h || details.volume7d || details.volume30d) {
+      detailsMessage += `📈 *Volume Information:*\n`;
+      if (details.volume24h) detailsMessage += `   • 24h: ${formatCurrency(Number(details.volume24h))}\n`;
+      if (details.volume7d) detailsMessage += `   • 7d: ${formatCurrency(Number(details.volume7d))}\n`;
+      if (details.volume30d) detailsMessage += `   • 30d: ${formatCurrency(Number(details.volume30d))}\n`;
+    }
+    
+    // Send the combined message
+    return ctx.reply(headerMessage + detailsMessage, { parse_mode: "Markdown" });
+    
+  } catch (error) {
+    console.error('Error in program command:', error);
+    return ctx.reply(`Error fetching program data: ${error instanceof Error ? error.message : 'Unknown error'}`); 
+  }
+});
 
 // Start command handler
 bot.command("start", (ctx) => {
@@ -44,7 +202,6 @@ bot.command("start", (ctx) => {
 
 *Program & Market Commands:*
 • */program* - Get program details
-• */program_activity* - Check program activity
 • */market* - Check market OHLC data
 • */pair* - Check trading pair data
 

@@ -1,0 +1,120 @@
+{
+    "data": [
+        {
+            "programId": "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm",
+            "programName": "1Dex"
+        },
+        {
+            "programId": "BSwp6bEBihVLdqJRKGgzjcGLHkcTuzmSo1TQkHepzH8p",
+            "programName": "Bonkswap"
+        },
+        {
+            "programId": "CLMM9tUoggJu2wagPkkqs9eFG4BWhVBZWkP1qv3Sp7tR",
+            "programName": "Crema Finance"
+        },
+        {
+            "programId": "DSwpgjMvXhtGn6BsbqmacdBZyfLj6jSWf3HJpdJtmg6N",
+            "programName": "Dexlab Swap"
+        },
+        {
+            "programId": "FLUXubRmkEi2q6K3Y9kBPg9248ggaZVsoSFhtJHSrm1X",
+            "programName": "Fluxbeam"
+        },
+        {
+            "programId": "GAMMA7meSFWaBXF25oSUgmGRwaW6sCMFLmBNiMSdbHVT",
+            "programName": "GooseFx v1"
+        },
+        {
+            "programId": "Gswppe6ERWKpUTXvRPfXdzHhiCyJvLadVvXGfdpBqcE1",
+            "programName": "Guacswap"
+        },
+        {
+            "programId": "HyaB3W9q6XdA5xwpU4XnSZV94htfmbmqJXZcEbRaJutt",
+            "programName": "Invariant Swap"
+        },
+        {
+            "programId": "EewxydAPCCVuNEyrVN68PuSYdQ7wKn27V9Gjeoi8dy3S",
+            "programName": "Lifinity Swap V1"
+        },
+        {
+            "programId": "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c",
+            "programName": "Lifinity Swap V2"
+        },
+        {
+            "programId": "MERLuDFBMmsHnsBPZw2sDQZHvXFMwp8EdjudcU2HKky",
+            "programName": "Mercurial Stable Swap"
+        },
+        {
+            "programId": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+            "programName": "Meteora DLMM Program"
+        },
+        {
+            "programId": "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB",
+            "programName": "Meteora Pools Program"
+        },
+        {
+            "programId": "obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y",
+            "programName": "Obric V2"
+        },
+        {
+            "programId": "opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb",
+            "programName": "OpenBook V2"
+        },
+        {
+            "programId": "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
+            "programName": "Orca Swap v2"
+        },
+        {
+            "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+            "programName": "Orca Whirlpool"
+        },
+        {
+            "programId": "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY",
+            "programName": "Phoenix"
+        },
+        {
+            "programId": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+            "programName": "Pump Swap - Dex program"
+        },
+        {
+            "programId": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+            "programName": "Pump.fun"
+        },
+        {
+            "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            "programName": "Raydium CLMM Program"
+        },
+        {
+            "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            "programName": "Raydium CPMM"
+        },
+        {
+            "programId": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+            "programName": "Raydium Liquidity Pool V4"
+        },
+        {
+            "programId": "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ",
+            "programName": "Saber"
+        },
+        {
+            "programId": "stkitrT1Uoy18Dk1fTrgPw8W6MVzoCfYoAFT4MLsmhq",
+            "programName": "Sanctum Router"
+        },
+        {
+            "programId": "SoLFiHG9TfgtdUXUjWAxi3LtvYuFyDLVhBWxdMZxyCe",
+            "programName": "SolFi"
+        },
+        {
+            "programId": "swapNyd8XiQwJ6ianp9snpu4brUqFxadzvHebnAXjJZ",
+            "programName": "Stabble Stable Swap"
+        },
+        {
+            "programId": "swapFpHZwjELNnjvThjajtiVmkz3yPQEHjLtka2fwHW",
+            "programName": "Stabble Weighted Swap"
+        },
+        {
+            "programId": "ZERor4xhbUycZ6gb9ntrhqscUcZmAbQDjEAtCf4hbZY",
+            "programName": "ZeroFi"
+        }
+    ]
+}
