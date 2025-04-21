@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
 import dotenv from 'dotenv';
-import vybeAPI from '@api/vybe-api';
+import vybeAPI from '../.api/apis/vybe-api';
 import * as fs from 'fs';
 import * as path from 'path';
 
