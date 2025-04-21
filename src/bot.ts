@@ -1,6 +1,8 @@
 import { Bot } from 'grammy';
 import dotenv from 'dotenv';
 import vybeAPI from '@api/vybe-api';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Load environment variables
 dotenv.config();
@@ -606,22 +608,13 @@ bot.command("top_holders", async (ctx) => {
     // Notify user that we're fetching data
     await ctx.reply(`Fetching top holders for token: \`${tokenMintAddress.substring(0, 6)}...${tokenMintAddress.substring(tokenMintAddress.length - 4)}\`...`, { parse_mode: "Markdown" });
     
-    console.log('Calling Vybe API to get top holders for:', tokenMintAddress);
+    console.log(`Calling Vybe API to get top holders for: ${tokenMintAddress}`);
     
     // Fetch top holders data with a timeout promise
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('API request timed out after 15 seconds')), 15000);
-    });
-    
-    const fetchPromise = vybeAPI.get_top_holders({ 
+    const response = await vybeAPI.get_top_holders({ 
       mintAddress: tokenMintAddress,
-      limit: 10 // Limit to top 10 holders
+      limit: 100  // Fetch 100 holders to have more to filter from
     });
-    
-    // Race between the fetch and the timeout
-    const response: any = await Promise.race([fetchPromise, timeoutPromise]);
-    
-    // If we get here, the fetch completed before the timeout
     
     console.log('API Response:', JSON.stringify(response, null, 2));
     
@@ -639,7 +632,7 @@ bot.command("top_holders", async (ctx) => {
       return ctx.reply(`Error: Response missing nested data property for token: ${tokenMintAddress}`);
     }
     
-    const holders = response.data.data;
+    let holders = response.data.data;
     
     if (!Array.isArray(holders)) {
       return ctx.reply(`Error: Expected array but got ${typeof holders} for token: ${tokenMintAddress}`);
@@ -649,22 +642,57 @@ bot.command("top_holders", async (ctx) => {
       return ctx.reply(`No holders found for token: ${tokenMintAddress}`);
     }
     
+    // Load and parse the known accounts file
+    try {
+      const knownAccountsPath = path.join(__dirname, 'knownaccounts.json');
+      console.log('Loading known accounts from:', knownAccountsPath);
+      
+      if (fs.existsSync(knownAccountsPath)) {
+        const knownAccountsData = fs.readFileSync(knownAccountsPath, 'utf8');
+        const knownAccounts = JSON.parse(knownAccountsData);
+        
+        // Extract the list of known account addresses
+        const knownAddresses = knownAccounts.accounts.map((account: any) => account.ownerAddress);
+        console.log(`Loaded ${knownAddresses.length} known accounts`);
+        
+        // Filter out the known addresses
+        const originalLength = holders.length;
+        holders = holders.filter((holder: any) => !knownAddresses.includes(holder.ownerAddress));
+        console.log(`Filtered out ${originalLength - holders.length} known accounts`);
+      } else {
+        console.log('Known accounts file not found, proceeding with all holders');
+      }
+    } catch (error) {
+      console.error('Error loading or parsing known accounts:', error);
+      // Continue with the original holders list if there's an error
+    }
+    
     // Get the token symbol from the first holder's data
     const tokenSymbol = holders[0].tokenSymbol || "Unknown";
     
     // Create the header message
     const headerMessage = `🏆 *TOP ${Math.min(10, holders.length)} HOLDERS OF ${tokenSymbol}*\n` +
-                      `Token: \`${tokenMintAddress.substring(0, 6)}...${tokenMintAddress.substring(tokenMintAddress.length - 4)}\`\n\n`;
+                      `Token: \`${tokenMintAddress}\`\n\n`;
     
     // Create the holders list message
     let holdersMessage = '';
     
+    // Take the top 10 from the filtered list
+    // Sort by balance (descending) first to ensure we're showing the actual top holders
+    holders.sort((a: any, b: any) => {
+      const balanceA = typeof a.balance === 'number' ? a.balance : parseFloat(a.balance || '0');
+      const balanceB = typeof b.balance === 'number' ? b.balance : parseFloat(b.balance || '0');
+      return balanceB - balanceA;
+    });
+    
+    const topHolders = holders.slice(0, 10);
+    
     // Process each holder
-    holders.slice(0, 10).forEach((holder: any, index: number) => {
-      // Format owner address for display
+    topHolders.forEach((holder: any, index: number) => {
+      // Format owner address for display - show full address for copying
       const ownerDisplay = holder.ownerName ? 
-        `${holder.ownerName} (${holder.ownerAddress.substring(0, 4)}...${holder.ownerAddress.substring(holder.ownerAddress.length - 4)})` :
-        `${holder.ownerAddress.substring(0, 6)}...${holder.ownerAddress.substring(holder.ownerAddress.length - 4)}`;
+        `${holder.ownerName}\n\`${holder.ownerAddress}\`` :
+        `\`${holder.ownerAddress}\``;
       
       // Format balance with commas and fixed decimal places
       const formattedBalance = Number(parseFloat(holder.balance)).toLocaleString(undefined, {
@@ -687,11 +715,19 @@ bot.command("top_holders", async (ctx) => {
       
       const formattedPercentage = percentageOfSupply.toFixed(2);
       
-      // Create the holder entry
-      holdersMessage += `${index + 1}. *${ownerDisplay}*\n` +
+      // Define number emojis for ranking
+      const numberEmojis = [
+        '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'
+      ];
+      
+      // Create the line for this holder with emoji numbers and the wallet address on a separate line
+      const holderLine = `${numberEmojis[index]} ${holder.ownerName || ''}\n` +
+                       `\`${holder.ownerAddress}\`\n` +
                        `   • Balance: ${formattedBalance} ${tokenSymbol}\n` +
                        `   • Value: $${formattedValueUsd}\n` +
                        `   • % of Supply: ${formattedPercentage}%\n\n`;
+      
+      holdersMessage += holderLine;
     });
     
     // Send the combined message with header and holders list
