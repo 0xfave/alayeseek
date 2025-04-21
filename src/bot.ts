@@ -417,6 +417,176 @@ bot.command("token_balance", async (ctx) => {
   }
 });
 
+// Report command handler - combines PnL, NFTs, and token balance data
+bot.command("report", async (ctx) => {
+  // Get the wallet address from the message text
+  const messageText = ctx.message?.text?.trim() || '';
+  const args = messageText.split(' ').filter(Boolean).slice(1);
+  const walletAddress = args[0];
+
+  // Check if wallet address was provided
+  if (!walletAddress) {
+    return ctx.reply('Please provide a wallet address. Usage: /report <wallet_address>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching comprehensive data
+    await ctx.reply(`Generating wallet report for: \`${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}\`...`, { parse_mode: "Markdown" });
+    
+    // Start collecting data from all endpoints in parallel
+    const [pnlResponse, nftResponse, tokenResponse] = await Promise.allSettled([
+      vybeAPI.get_wallet_pnl({ ownerAddress: walletAddress, resolution: '1d' }).catch(() => null),
+      vybeAPI.get_wallet_nfts({ ownerAddress: walletAddress }).catch(() => null),
+      vybeAPI.get_wallet_tokens({
+        ownerAddress: walletAddress,
+        minAssetValue: '0',
+        maxAssetValue: '9999999999'
+      }).catch(() => null)
+    ]);
+    
+    // Initialize report sections
+    let pnlSection = "No PnL data available.";
+    let nftSection = "No NFT data available.";
+    let tokenSection = "No token data available.";
+    
+    // Process PnL data if available
+    if (pnlResponse.status === 'fulfilled' && pnlResponse.value) {
+      const pnlData = pnlResponse.value.data;
+      const summary = pnlData.summary;
+      
+      // Format PnL section
+      if (summary) {
+        const totalPnl = (summary.realizedPnlUsd || 0) + (summary.unrealizedPnlUsd || 0);
+        pnlSection = `💰 *Profit & Loss*\n`+
+          `🔹 Total PnL: $${totalPnl.toFixed(2)}\n`+
+          `🔹 Win Rate: ${summary.winRate?.toFixed(2) || 0}%\n`+
+          `🔹 Trades: ${summary.tradesCount || 0}\n`+
+          `🔹 Volume: $${(summary.tradesVolumeUsd || 0).toFixed(2)}`;
+          
+        // Add best and worst token if available
+        if (summary.bestPerformingToken) {
+          pnlSection += `\n🏆 Best: ${summary.bestPerformingToken.tokenSymbol || 'Unknown'} ($${summary.bestPerformingToken.pnlUsd?.toFixed(2) || '0.00'})`;
+        }
+        
+        if (summary.worstPerformingToken) {
+          pnlSection += `\n📉 Worst: ${summary.worstPerformingToken.tokenSymbol || 'Unknown'} ($${summary.worstPerformingToken.pnlUsd?.toFixed(2) || '0.00'})`;
+        }
+      }
+    }
+    
+    // Process NFT data if available
+    if (nftResponse.status === 'fulfilled' && nftResponse.value) {
+      const nftData = nftResponse.value.data;
+      
+      // Get values, ensuring they're numbers
+      const totalValueUsd = typeof nftData.totalValueUsd === 'number' ? nftData.totalValueUsd : 
+                           typeof nftData.totalValueUsd === 'string' ? parseFloat(nftData.totalValueUsd) : 0;
+      const totalValueSol = typeof nftData.totalValueSol === 'number' ? nftData.totalValueSol : 
+                           typeof nftData.totalValueSol === 'string' ? parseFloat(nftData.totalValueSol) : 0;
+      
+      // Get collections and NFTs as arrays
+      const collections = Array.isArray(nftData.collections) ? nftData.collections : [];
+      const nfts = Array.isArray(nftData.nfts) ? nftData.nfts : [];
+      
+      // Format NFT section
+      nftSection = `📦 *NFT Portfolio*\n`+
+        `🔹 Value: $${totalValueUsd.toFixed(2)} (${totalValueSol.toFixed(4)} SOL)\n`+
+        `🔹 Collections: ${collections.length}\n`+
+        `🔹 Total NFTs: ${nfts.length}`;
+      
+      // Add top collection if available
+      if (collections.length > 0) {
+        // Sort by value
+        const topCollection = [...collections]
+          .sort((a, b) => (typeof b.valueUsd === 'number' ? b.valueUsd : 0) - (typeof a.valueUsd === 'number' ? a.valueUsd : 0))[0];
+          
+        if (topCollection) {
+          const collectionValueUsd = typeof topCollection.valueUsd === 'number' ? topCollection.valueUsd : 0;
+          nftSection += `\n🎨 Top Collection: ${topCollection.name || 'Unknown'} ($${collectionValueUsd.toFixed(2)})`;
+        }
+      }
+    }
+    
+    // Process token data if available
+    if (tokenResponse.status === 'fulfilled' && tokenResponse.value) {
+      const tokenData = tokenResponse.value.data;
+      
+      // Get the total portfolio value
+      const totalValueUsd = typeof tokenData.totalTokenValueUsd === 'number' ? tokenData.totalTokenValueUsd : 
+                           typeof tokenData.totalTokenValueUsd === 'string' ? parseFloat(tokenData.totalTokenValueUsd) : 0;
+      
+      // Get staked SOL value
+      const nativeSolBalance = typeof tokenData.stakedSolBalance === 'number' ? tokenData.stakedSolBalance : 
+                              typeof tokenData.stakedSolBalance === 'string' ? parseFloat(tokenData.stakedSolBalance) : 0;
+      
+      // Get tokens array
+      const tokens = Array.isArray(tokenData.data) ? tokenData.data : [];
+      
+      // Format token section
+      tokenSection = `💸 *Token Balances*\n`+
+        `🔹 Total Value: $${totalValueUsd.toFixed(2)}\n`+
+        `🔹 Staked SOL: ${nativeSolBalance.toFixed(4)} SOL\n`+
+        `🔹 Unique Tokens: ${tokens.length}`;
+      
+      // Add top 3 tokens if available
+      if (tokens.length > 0) {
+        // Sort tokens by USD value and get top 3
+        const topTokens = [...tokens]
+          .sort((a, b) => (typeof b.valueUsd === 'number' ? b.valueUsd : 
+                          typeof b.valueUsd === 'string' ? parseFloat(b.valueUsd) : 0) - 
+                         (typeof a.valueUsd === 'number' ? a.valueUsd : 
+                          typeof a.valueUsd === 'string' ? parseFloat(a.valueUsd) : 0))
+          .slice(0, 3);
+        
+        if (topTokens.length > 0) {
+          tokenSection += `\n\n*Top Tokens:*`;
+          
+          topTokens.forEach((token, index) => {
+            const tokenValueUsd = typeof token.valueUsd === 'number' ? token.valueUsd : 
+                                 typeof token.valueUsd === 'string' ? parseFloat(token.valueUsd) : 0;
+            
+            tokenSection += `\n${index + 1}. ${token.symbol || token.mintAddress?.substring(0, 6) || 'Unknown'}: $${tokenValueUsd.toFixed(2)}`;
+          });
+        }
+      }
+    }
+    
+    // Combine all sections into a comprehensive report
+    const reportHeader = `📋 *WALLET REPORT*\n`+
+                        `👤 *${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}*\n`+
+                        `📅 *${new Date().toISOString().split('T')[0]}*\n\n`;
+    
+    // Send main report with sections
+    await ctx.reply(reportHeader + pnlSection, { parse_mode: "Markdown" });
+    await ctx.reply(nftSection, { parse_mode: "Markdown" });
+    await ctx.reply(tokenSection, { parse_mode: "Markdown" });
+    
+    // Add a footer with instructions on how to get more detailed information
+    // Use plain text to avoid any Markdown parsing issues
+    const reportFooter = "For more detailed information, try using these commands with your wallet address:\n" +
+                      "/pnl - Full profit & loss details\n" +
+                      "/nfts - Complete NFT portfolio\n" +
+                      "/token_balance - All token holdings";
+    
+    await ctx.reply(reportFooter);
+    
+  } catch (error: any) {
+    console.error('Error generating wallet report:', error);
+    // More specific error message
+    let errorMessage = 'Failed to generate wallet report. Please try again later.';
+    
+    // If it's a Telegram API error, provide better guidance
+    if (error.description && error.description.includes("can't parse entities")) {
+      errorMessage = 'Error formatting report. This is likely due to special characters in the data.';
+    }
+    
+    return ctx.reply(errorMessage);
+  }
+});
+
 // Start the bot
 bot.start();
 
