@@ -186,6 +186,100 @@ bot.command("pnl", async (ctx) => {
   }
 });
 
+// NFTs command handler
+bot.command("nfts", async (ctx) => {
+  // Get the wallet address from the message text
+  const messageText = ctx.message?.text?.trim() || '';
+  const args = messageText.split(' ').filter(Boolean).slice(1);
+  const walletAddress = args[0];
+
+  // Check if wallet address was provided
+  if (!walletAddress) {
+    return ctx.reply('Please provide a wallet address. Usage: /nfts <wallet_address>');
+  }
+  
+  // Set the API key
+  vybeAPI.auth(VYBE_API_KEY);
+  
+  try {
+    // Notify user that we're fetching data
+    await ctx.reply(`Fetching NFT portfolio for wallet: \`${walletAddress}\`...`, { parse_mode: "Markdown" });
+    
+    // Call the Vybe API to get wallet NFT data
+    const response = await vybeAPI.get_wallet_nfts({
+      ownerAddress: walletAddress
+    });
+    
+    const nftData = response.data;
+    
+    // Get portfolio values ensuring they're numbers
+    const totalValueUsd = typeof nftData.totalValueUsd === 'number' ? nftData.totalValueUsd : 0;
+    const totalValueSol = typeof nftData.totalValueSol === 'number' ? nftData.totalValueSol : 0;
+    
+    // Get collections and NFTs as arrays
+    const collections = Array.isArray(nftData.collections) ? nftData.collections : [];
+    const nfts = Array.isArray(nftData.nfts) ? nftData.nfts : [];
+    
+    // Format the summary response
+    const summaryResponse = `📦 *NFT Portfolio Summary for ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}*\n\n`+
+      `💰 *Portfolio Value*\n`+
+      `🔹 Total Value (USD): $${totalValueUsd.toFixed(2)}\n`+
+      `🔹 Total Value (SOL): ${totalValueSol.toFixed(4)} SOL\n\n`+
+      `🧮 *Collection Stats*\n`+
+      `🔹 Unique Collections: ${collections.length}\n`+
+      `🔹 Total NFTs: ${nfts.length}\n\n`+
+      `🎨 *Top Collections:*`;
+      
+    // Send the summary response
+    await ctx.reply(summaryResponse, { parse_mode: "Markdown" });
+    
+    // If there are collections, display top 5 collections by value
+    if (collections.length > 0) {
+      // Sort collections by value in USD
+      const sortedCollections = [...collections]
+        .sort((a, b) => (typeof b.valueUsd === 'number' ? b.valueUsd : 0) - (typeof a.valueUsd === 'number' ? a.valueUsd : 0))
+        .slice(0, 5);
+      
+      // Process each collection
+      for (const collection of sortedCollections) {
+        const collectionValueUsd = typeof collection.valueUsd === 'number' ? collection.valueUsd : 0;
+        const collectionValueSol = typeof collection.valueSol === 'number' ? collection.valueSol : 0;
+        const floorPrice = typeof collection.floorPrice === 'number' ? collection.floorPrice : null;
+        const nftCount = typeof collection.nftCount === 'number' ? collection.nftCount : 0;
+        
+        const collectionDetails = `*${collection.name || 'Unknown Collection'}*\n`+
+          `🔹 Value: $${collectionValueUsd.toFixed(2)} (${collectionValueSol.toFixed(4)} SOL)\n`+
+          `🔹 NFTs: ${nftCount}\n`+
+          `🔹 Floor Price: ${floorPrice !== null ? floorPrice.toFixed(4) : 'Unknown'} SOL`;
+        
+        await ctx.reply(collectionDetails, { parse_mode: "Markdown" });
+      }
+      
+      // If there are individual NFTs, let the user know they can see more
+      if (nfts.length > 0) {
+        await ctx.reply(`*Note:* Your wallet contains ${nfts.length} individual NFTs. For a detailed view of each NFT, please use a Solana explorer.`, { parse_mode: "Markdown" });
+      }
+    } else {
+      await ctx.reply("No NFT collections found in this wallet.", { parse_mode: "Markdown" });
+    }
+    
+  } catch (error: any) {
+    console.error('Error fetching NFT data:', error);
+    let errorMessage = 'Failed to fetch NFT data.';
+    
+    // Provide more specific error messages
+    if (error.response) {
+      if (error.response.status === 400) {
+        errorMessage = 'Invalid wallet address. Please check and try again.';
+      } else if (error.response.status === 500) {
+        errorMessage = 'Server error occurred. Please try again later.';
+      }
+    }
+    
+    return ctx.reply(errorMessage);
+  }
+});
+
 // Start the bot
 bot.start();
 
